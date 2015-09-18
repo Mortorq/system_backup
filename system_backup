@@ -26,7 +26,7 @@ past = time.time() - 86400
 fullBackup_dict = {
         'backupdir' : mountPoint + host + '/',
         'backupname' : host + '.' + date,
-        'backupstokeep' : 4,
+        'backupstokeep' : 6,
         'excludelist' : ('/proc',
                          '/lost+found',
                          '/sys',
@@ -70,7 +70,7 @@ class backup:
         print 'fnames = %s' %fnames
         print 'Backing up the system'
         # Full Backup
-        if datetime.date.today().strftime("%A") == "Friday":
+        if datetime.date.today().strftime("%A") == "Sunday":
             command = 'nice -n 10 tar cvpjf ' + self.backupdir + self.backupname + '_FULL' + '.tar.bz2 ' \
                     + fullBackup_dict['excludelist'] + ' / ' + '--index-file ' + self.backupdir + self.backupname + '.log' + ' 2>&1'
         # Differntial Backup
