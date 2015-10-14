@@ -1,31 +1,32 @@
 #!/usr/bin/env python
+# Author: Charly Frahm
+# Company: CEVO AG
 
 import datetime
-import re
 import os
 import subprocess
 import socket
 import glob
-from stat import *
 import time
-from collections import defaultdict
+import errno
+
+from stat import *
 
 host = socket.gethostname()
-date = datetime.datetime.today()
-date = date.strftime("%Y-%m-%d")
-mountPoint = "/mnt/linuxbackup/"
-nas = '//172.19.3.5/backup/linuxserver'
-credentials = 'sec=ntlm,credentials=/root/.backup.secret'
-dirPath = '/'
-past = time.time() - 86400
+date = datetime.datetime.today().strftime('%Y-%m-%d')
 
-# Global settings
+MOUNT_POINT = '/mnt/linuxbackup/'
+NAS = '//172.19.3.5/backup/linuxserver/'
+CREDENTIALS = 'sec=ntlm,credentials=/root/.backup.secret'
+DIR_PATH = '/'
 
-fullBackup_dict = {
-        'backupdir' : mountPoint + host + '/',
-        'backupname' : host + '.' + date,
-        'backupstokeep' : 6,
-        'excludelist' : ('/proc',
+# configuration
+
+backup_config = {
+        'backup_dir' : os.path.join(MOUNT_POINT, host),
+        'backup_name' : host + '.' + date,
+        'backups_to_keep' : 4,
+        'exclude_dirs' : ('/proc',
                          '/lost+found',
                          '/sys',
                          '/media',
@@ -37,104 +38,109 @@ fullBackup_dict = {
                          '/tmp'
                          ),
         }
-dailyBackupDict = defaultdict(list)
-includelist = ''
 
-excludelist = ''
-for a in fullBackup_dict['excludelist']:
-    excludelist = excludelist + '--exclude=%s   ' %a
-fullBackup_dict['excludelist'] = excludelist
+exclude_dirs = ''
+for a in backup_config['exclude_dirs']:
+    exclude_dirs = exclude_dirs + '--exclude=%s ' %a
+backup_config['exclude_dirs'] = exclude_dirs
 
-if os.path.exists(mountPoint):
-    subprocess.check_call(["mount", "-t", "cifs", "-o", credentials, nas, mountPoint])
-    if not os.path.exists(fullBackup_dict['backupdir']):
-        os.makedirs(fullBackup_dict['backupdir'])
-else:
-    os.makedirs(mountPoint)
-    subprocess.check_call(["mount", "-t", "cifs", "-o", credentials, nas, mountPoint])
+def mkdir_p(mount_point):
+    """Creates the directory mount_point and ignores errors if it already exsist"""
+    try:
+        os.makedirs(mount_point)
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(mount_point):
+            pass
+        else: raise
 
-class backup:
-    def __init__(self, backupdir, backupname):
-        self.backupdir = backupdir
-        self.backupname = backupname
-        self.run()
+def mount(mount_point, credentials, nas, backup_dir):
+    """Checks if the NFS share for the backup
+    exists (if not it creates it) and mounts it"""
+    mkdir_p(mount_point)
+    if not os.path.ismount(mount_point):
+            subprocess.check_call(['mount', '-t', 'cifs', '-o', credentials, nas, mount_point])
 
-    def run(self,):
-        # Getting a list of previous backups
-        fnames = [os.path.basename(x) for x in
-                glob.glob(self.backupdir + host + '.[0-9][0-9][0-9][0-9]' +
-                    '-[0-9][0-9]' + '-[0-9][0-9]' + '.tar.bz2')]
-        print self.backupdir + host + '[0-9][0-9][0-9][0-9]' + '-[0-9][0-9]' + '-[0-9][0-9]' + '.tar.bz2'
-        print 'fnames = %s' %fnames
-        print 'Backing up the system'
-        # Full Backup
-        if datetime.date.today().strftime("%A") == "Sunday":
-            command = 'nice -n 10 tar cvpjf ' + self.backupdir + self.backupname + '_FULL' + '.tar.bz2 ' \
-                    + fullBackup_dict['excludelist'] + ' / ' + '--index-file ' + self.backupdir + self.backupname + '.log' + ' 2>&1'
-        # Differntial Backup
-        else:
-            includelist = ''
-            try:
-                for path, dirs, files in os.walk(dirPath, topdown=True):
-                    files = [f for f in files if not f[0] == '.']
-                    dirs[:] = [d for d in dirs if (d not in fullBackup_dict['excludelist']) and (d[0] != '.')]
-                    for fn in files:
-                        filePath = os.path.join(path, fn)
-                        try:
-                            if os.path.getmtime(filePath) >= past:
-                                if os.path.islink(filePath):
-                                    continue
-                                else:
-                                    dailyBackupDict['includelist'].append(filePath)
-                                    for addFiles in dailyBackupDict['includelist']:
-                                        includelist = includelist + '--add-file="%s" ' %addFiles
-                        except OSError:
-                            pass
-            except OSError:
-                pass
-            dailyBackupDict['includelist'] = includelist
-            command = 'nice -n 10 tar cvpjf ' + self.backupdir + self.backupname + '.tar.bz2 ' + fullBackup_dict['excludelist'] \
-                    + dailyBackupDict['includelist'] + ' > ' + self.backupdir + self.backupname + '.log' + ' 2>&1'
-        print command
-        os.system(command)
-
-        while len(fnames) > fullBackup_dict['backupstokeep']:
-            print 'more than %s file(s) here!' %fullBackup_dict['backupstokeep']
-            print 'Removing oldest file'
-            filetimes = {}
-            accesstimes = []
-            for filename in fnames:
-                print self.backupdir + filename
-                mode = os.stat(self.backupdir + filename)[ST_MTIME]
-                filetimes[mode] = filename
-                accesstimes.append(mode)
-                print mode
-
-            accesstimes.sort()
-            print filetimes
-            print accesstimes
-            fileToDelete = filetimes[accesstimes[0]]
-            print 'Deleting file %s' %fileToDelete
-
-            try:
-                os.remove(self.backupdir + fileToDelete)
-                os.remove(self.backupdir + fileToDelete[:-7] + 'log')
-
-            except Exception, inst:
-                print inst
-
-            fnames = [os.path.basename(x) for x in
-                    glob.glob(self.backupdir + host + '-' + '[0-9][0-9][0-9][0-9]' + '-' + '[0-9][0-9]' +
-                        '-' + '[0-9][0-9]' + '.tar.bz2')]
-
-            print '%s%s' %(self.backupdir,self.backupname)
-
-        if os.path.ismount(mountPoint):
-                subprocess.check_call(["umount", mountPoint])
+def unmount(mount_point):
+    """Unmounts the mounted backup directory"""
+    if os.path.ismount(mount_point):
+        subprocess.check_call(['umount', mount_point])
 
 
-def main():
-    backup(fullBackup_dict['backupdir'], fullBackup_dict['backupname'])
+def get_previous_backups(backup_dir, extension):
+    """Returns a list of backup files matching the date format and file extension"""
+    return [os.path.basename(x) for x in
+            glob.glob(backup_dir + DIR_PATH + host + '.[0-9][0-9][0-9][0-9]' +
+                '-[0-9][0-9]' + '-[0-9][0-9]' + '.' + extension)]
 
-if __name__ == '__main__':
-    main()
+def remove_old_backups(backup_dir, backups_to_keep, backup_name):
+    """Gets a list of old backups and deletes the old ones"""
+    fnames = get_previous_backups(backup_dir, 'tar.bz2')
+    metadata = get_previous_backups(backup_dir, 'metadata')
+    time.sleep(5)
+    print fnames
+    while len(fnames) > backups_to_keep:
+        print 'more than {} file(s) here!'.format(backups_to_keep)
+        print 'Removing oldest file'
+        file_times = {}
+        access_times = []
+        for file_name in fnames:
+            print backup_dir + file_name
+            mode = os.stat(backup_dir + DIR_PATH + file_name)[ST_MTIME]
+            file_times[mode] =file_name
+            access_times.append(mode)
+            print mode
+
+        access_times.sort()
+        print file_times
+        print access_times
+        file_to_delete = file_times[access_times[0]]
+        print 'Deleting file %s' %file_to_delete
+
+        try:
+            os.remove(backup_dir + DIR_PATH + file_to_delete)
+            os.remove(backup_dir + DIR_PATH + file_to_delete[:-7] + 'log')
+            del file_to_delete
+
+        except Exception as inst:
+            print inst
+            
+        fnames = get_previous_backups(backup_dir, 'tar.bz2')
+
+    print '%s%s' %(backup_dir, backup_name)
+
+def backup(backup_dir, backup_name):
+    """is taking care of both, the incremental and the full backup,
+    of a linux system"""
+    fnames = get_previous_backups(backup_dir, 'tar.bz2')
+    metadata = get_previous_backups(backup_dir, 'metadata')
+    print 'fnames = {}'.format(fnames)
+    print 'metadata = {}'.format(metadata)
+    print 'Backing up the system'
+    print 'Working on %s' %backup_dir
+    
+    # Full Backup
+    if datetime.date.today().strftime('%A') == 'Sunday':
+        print 'doing complete backup of %s' %host
+        command = ('nice -n 10 tar --create --verbose --preserve-permissions --bzip2 \
+                --file={0}_FULL.tar.bz2 --listed-incremental={0}.metadata {1} > {2}.log 2>&1'
+                .format(os.path.join(backup_dir, backup_name),
+                    backup_config['exclude_dirs'],
+                    DIR_PATH,
+                    os.path.join(backup_dir, backup_name)))
+
+    # Incremental Backup
+    else:
+        print 'doing incremental backup of %s' %host
+        command = ('nice -n 10 tar --create --verbose --preserve-permissions --bzip2 \
+                --file={0}.tar.bz2 --listed-incremental={1} {2} {3} > {0}.log 2>&1'
+                .format(os.path.join(backup_dir, backup_name),
+                    os.path.join(backup_dir, metadata[0]),
+                    backup_config['exclude_dirs'],
+                    DIR_PATH))
+    print command
+    os.system(command)
+
+mount(MOUNT_POINT, CREDENTIALS, NAS, backup_config['backup_dir'])
+#backup(backup_config['backup_dir'], backup_config['backup_name'])
+remove_old_backups(backup_config['backup_dir'], backup_config['backups_to_keep'], backup_config['backup_name'])
+unmount(MOUNT_POINT)
