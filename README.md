@@ -1,14 +1,11 @@
 # system_backup
 The system_backup tool is a software written in python to make regular backups of a Linux system
 
-In it's current state it can make backups of every regular business day (monday - friday). From monday to thursday it makes backups for every file that was change within the last 24h. On Friday it makes a full backup of the system.
-A dict with dirs to exclude is implemented and shall be modified for personal preferences.
+This script is made for automated backups of a linux system (tested with Debian and Ubuntu). On the last day of the Week (Sunday) it should make a full backup of the whole system, excluding the directories listed in the key exclude_dirs of backup_config, removing/creating a new metadata file on which all incremental backups in the following week will rely on.
+
+The backups will be removed automated in a defined cicle, the default is 4 days. Configurable in the "backups_to_keep" key of backup_config. This means if the first Backup was written on a Monday, this backup will be deleted on a friday. The script detects the oldest backup and removes it without questioning.
 
 Todos:
 
-- All the parameters should be given to the script and shouldn't be hardcoded
-- implement a real differential and incremental backup function
-
-
-NOTE:
-Most of the code is not written by me. The original code is from Josh Kapple; http://www.joshkapple.com/blog/2010/05/23/easy-linux-backup-script-with-python/ . I just did some useful modifikations / improvements
+- Maybe the configuration parameters should also be configurable via parameters given to the script
+- implement a differential backup; make a swith for differential and incremental in the script
