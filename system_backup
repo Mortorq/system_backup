@@ -56,7 +56,8 @@ def mount(mount_point, credentials, nas, backup_dir):
     exists (if not it creates it) and mounts it"""
     mkdir_p(mount_point)
     if not os.path.ismount(mount_point):
-            subprocess.check_call(['mount', '-t', 'cifs', '-o', credentials, nas, mount_point])
+        subprocess.check_call(['mount', '-t', 'cifs', '-o', credentials, nas, mount_point])
+    mkdir_p(backup_dir)
 
 def unmount(mount_point):
     """Unmounts the mounted backup directory"""
@@ -74,7 +75,6 @@ def remove_old_backups(backup_dir, backups_to_keep, backup_name):
     """Gets a list of old backups and deletes the old ones"""
     fnames = get_previous_backups(backup_dir, 'tar.bz2')
     metadata = get_previous_backups(backup_dir, 'metadata')
-    time.sleep(5)
     print fnames
     while len(fnames) > backups_to_keep:
         print 'more than {} file(s) here!'.format(backups_to_keep)
@@ -114,7 +114,6 @@ def backup(backup_dir, backup_name):
     print 'fnames = {}'.format(fnames)
     print 'metadata = {}'.format(metadata)
     print 'Backing up the system'
-    print 'Working on %s' %backup_dir
     
     # Full Backup
     if datetime.date.today().strftime('%A') == 'Sunday':
